@@ -361,12 +361,12 @@ impl eframe::App for CopainApp {
             });
         interactive_rects.push(top_panel.response.rect);
 
-        // Bottom prompt bar
+        // Bottom prompt bar (safe width clamping + right-aligned controls so it never overflows)
         let bottom_panel = egui::TopBottomPanel::bottom("prompt_bar")
             .frame(
                 Frame::none()
                     .fill(if self.overlay_mode {
-                        Color32::from_rgba_unmultiplied(20, 22, 30, 220)
+                        Color32::from_rgba_unmultiplied(20, 22, 30, 235)
                     } else {
                         Color32::from_rgba_unmultiplied(255, 255, 255, 245)
                     })
@@ -378,10 +378,11 @@ impl eframe::App for CopainApp {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let text_edit = ui.add_sized(
-                        [ui.available_width() - 260.0, 30.0],
+                    let input_w = (ui.available_width() - 320.0).clamp(220.0, 760.0);
+                    let text_edit = ui.add(
                         egui::TextEdit::singleline(&mut self.prompt)
-                            .hint_text("Ask copain_t to sketch, annotate, or render a 3D diagram… (Enter to stream)"),
+                            .desired_width(input_w)
+                            .hint_text("Ask copain_t to sketch, annotate, or render a 3D diagram... (Enter to stream)"),
                     );
                     let enter_pressed = text_edit.lost_focus()
                         && ui.input(|i| i.key_pressed(Key::Enter));
@@ -393,21 +394,29 @@ impl eframe::App for CopainApp {
                     let send_clicked = ui
                         .add_enabled(
                             !self.streaming,
-                            egui::Button::new(if self.streaming { "Streaming..." } else { "Stream >" })
-                                .fill(Color32::from_rgb(255, 85, 0)),
+                            egui::Button::new(
+                                RichText::new(if self.streaming { "Streaming..." } else { "Stream >" })
+                                    .color(Color32::WHITE),
+                            )
+                            .fill(Color32::from_rgb(255, 85, 0)),
                         )
                         .clicked();
 
                     if (send_clicked || enter_pressed) && !self.streaming {
                         let p = self.prompt.clone();
                         self.trigger_prompt(ctx, p);
+                        if self.overlay_mode {
+                            self.show_chrome = false;
+                        }
                     }
 
-                    ui.label(
-                        RichText::new(&self.status_text)
-                            .size(12.0)
-                            .color(Color32::from_rgb(130, 138, 155)),
-                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(&self.status_text)
+                                .size(12.0)
+                                .color(Color32::from_rgb(130, 138, 155)),
+                        );
+                    });
                 });
             });
         interactive_rects.push(bottom_panel.response.rect);
@@ -564,13 +573,18 @@ impl eframe::App for CopainApp {
             });
 
         // Selective click-through in Overlay Mode:
-        // Allow mouse events when hovering interactive UI or the 3D widget; pass through otherwise.
+        // Keep input active while the prompt bar/chrome is open; otherwise only capture
+        // mouse events when hovering interactive UI (3D widget or Clear pill).
         if self.overlay_mode {
-            let hover_pos = ctx.input(|i| i.pointer.hover_pos());
-            let over_interactive = hover_pos
-                .map(|p| interactive_rects.iter().any(|r| r.contains(p)))
-                .unwrap_or(false);
-            let should_passthrough = !over_interactive;
+            let should_passthrough = if self.show_chrome {
+                false
+            } else {
+                let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+                let over_interactive = hover_pos
+                    .map(|p| interactive_rects.iter().any(|r| r.contains(p)))
+                    .unwrap_or(false);
+                !over_interactive
+            };
             if should_passthrough != self.last_passthrough {
                 ctx.send_viewport_cmd(ViewportCommand::MousePassthrough(should_passthrough));
                 self.last_passthrough = should_passthrough;
