@@ -362,61 +362,88 @@ impl eframe::App for CopainApp {
         interactive_rects.push(top_panel.response.rect);
         }
 
-        // Spotlight-style floating prompt bar
+        // macOS Spotlight-style floating prompt bar
         if self.show_chrome {
             let spotlight_offset = if self.overlay_mode {
-                Vec2::new(0.0, 140.0)
+                Vec2::new(0.0, 150.0)
             } else {
-                Vec2::new(0.0, 62.0)
+                Vec2::new(0.0, 64.0)
             };
             let area_resp = egui::Area::new(egui::Id::new("spotlight_prompt"))
                 .anchor(egui::Align2::CENTER_TOP, spotlight_offset)
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     let dark = self.overlay_mode;
+                    // Authentic macOS frosted glass palette
                     let card_bg = if dark {
-                        Color32::from_rgba_unmultiplied(22, 25, 35, 242)
+                        Color32::from_rgba_unmultiplied(30, 32, 38, 236)
                     } else {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 248)
+                        Color32::from_rgba_unmultiplied(248, 248, 250, 244)
                     };
-                    let border = if dark {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 36)
+                    let outer_border = if dark {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 38)
                     } else {
-                        Color32::from_rgba_unmultiplied(15, 23, 42, 28)
+                        Color32::from_rgba_unmultiplied(0, 0, 0, 26)
+                    };
+                    let icon_color = if dark {
+                        Color32::from_rgb(156, 163, 175)
+                    } else {
+                        Color32::from_rgb(110, 114, 124)
+                    };
+                    let text_color = if dark {
+                        Color32::from_rgb(245, 245, 247)
+                    } else {
+                        Color32::from_rgb(28, 28, 30)
                     };
 
                     Frame::none()
                         .fill(card_bg)
-                        .rounding(Rounding::same(16.0))
-                        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
-                        .stroke(Stroke::new(1.0_f32, border))
+                        .rounding(Rounding::same(14.0))
+                        .inner_margin(egui::Margin::symmetric(18.0, 14.0))
+                        .stroke(Stroke::new(1.0_f32, outer_border))
                         .shadow(egui::epaint::Shadow {
-                            offset: Vec2::new(0.0, 12.0),
-                            blur: 28.0,
+                            offset: Vec2::new(0.0, 18.0),
+                            blur: 40.0,
                             spread: 0.0,
-                            color: Color32::from_rgba_unmultiplied(0, 0, 0, if dark { 110 } else { 36 }),
+                            color: Color32::from_rgba_unmultiplied(
+                                0,
+                                0,
+                                0,
+                                if dark { 135 } else { 48 },
+                            ),
                         })
                         .show(ui, |ui| {
-                            ui.set_width(640.0);
-                            ui.horizontal(|ui| {
-                                // Accent brand dot
-                                ui.label(
-                                    RichText::new("copain_t")
-                                        .strong()
-                                        .size(14.0)
-                                        .color(Color32::from_rgb(255, 85, 0)),
+                            ui.set_width(660.0);
+                            ui.horizontal_centered(|ui| {
+                                // Crisp macOS Spotlight vector magnifying glass
+                                let (icon_rect, _) =
+                                    ui.allocate_exact_size(Vec2::new(24.0, 24.0), Sense::hover());
+                                let c = icon_rect.center() - Vec2::new(2.0, 2.0);
+                                ui.painter().circle_stroke(
+                                    c,
+                                    7.5,
+                                    Stroke::new(2.0_f32, icon_color),
                                 );
-                                ui.add_space(4.0);
+                                ui.painter().line_segment(
+                                    [c + Vec2::new(5.5, 5.5), c + Vec2::new(11.0, 11.0)],
+                                    Stroke::new(2.2_f32, icon_color),
+                                );
+
+                                ui.add_space(6.0);
 
                                 let text_edit = ui.add(
                                     egui::TextEdit::singleline(&mut self.prompt)
-                                        .desired_width(410.0)
-                                        .font(FontId::proportional(16.0))
+                                        .desired_width(515.0)
+                                        .font(FontId::proportional(20.0))
+                                        .text_color(text_color)
                                         .frame(false)
-                                        .hint_text("Sketch, annotate, or render a 3D diagram..."),
+                                        .hint_text(
+                                            RichText::new("copain_t — Sketch or visualize...")
+                                                .color(icon_color)
+                                                .size(20.0),
+                                        ),
                                 );
 
-                                // Auto-focus when opened in Overlay Mode
                                 if self.overlay_mode && !text_edit.has_focus() {
                                     text_edit.request_focus();
                                 }
@@ -425,16 +452,27 @@ impl eframe::App for CopainApp {
                                     && (text_edit.has_focus() || text_edit.lost_focus());
 
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    // Subtle macOS keycap pill (clickable to submit)
+                                    let keycap_bg = if dark {
+                                        Color32::from_rgba_unmultiplied(255, 255, 255, 20)
+                                    } else {
+                                        Color32::from_rgba_unmultiplied(0, 0, 0, 14)
+                                    };
                                     let send_clicked = ui
                                         .add_enabled(
                                             !self.streaming,
                                             egui::Button::new(
-                                                RichText::new(if self.streaming { "..." } else { "Stream >" })
-                                                    .size(13.0)
-                                                    .color(Color32::WHITE),
+                                                RichText::new(if self.streaming {
+                                                    "..."
+                                                } else {
+                                                    "Return"
+                                                })
+                                                .size(12.0)
+                                                .color(icon_color),
                                             )
-                                            .rounding(Rounding::same(10.0))
-                                            .fill(Color32::from_rgb(255, 85, 0)),
+                                            .rounding(Rounding::same(6.0))
+                                            .fill(keycap_bg)
+                                            .stroke(Stroke::new(1.0_f32, outer_border)),
                                         )
                                         .clicked();
 
@@ -449,22 +487,6 @@ impl eframe::App for CopainApp {
                                             self.show_chrome = false;
                                         }
                                     }
-                                });
-                            });
-
-                            ui.add_space(6.0);
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(&self.status_text)
-                                        .size(11.5)
-                                        .color(Color32::from_rgb(130, 138, 155)),
-                                );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.label(
-                                        RichText::new("Enter to stream  ·  Esc to clear")
-                                            .size(11.0)
-                                            .color(Color32::from_rgb(130, 138, 155)),
-                                    );
                                 });
                             });
                         });
