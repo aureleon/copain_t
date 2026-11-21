@@ -258,8 +258,8 @@ impl eframe::App for CopainApp {
 
         let mut interactive_rects: Vec<Rect> = Vec::new();
 
-        // Top floating bar (hidden in bare overlay mode; press Tab to toggle)
-        if self.show_chrome {
+        // Top toolbar (shown in Canvas Mode only; Overlay Mode uses the menu bar + Spotlight prompt)
+        if !self.overlay_mode && self.show_chrome {
         let top_panel = egui::TopBottomPanel::top("top_bar")
             .frame(
                 Frame::none()
@@ -360,66 +360,116 @@ impl eframe::App for CopainApp {
                 });
             });
         interactive_rects.push(top_panel.response.rect);
+        }
 
-        // Bottom prompt bar (safe width clamping + right-aligned controls so it never overflows)
-        let bottom_panel = egui::TopBottomPanel::bottom("prompt_bar")
-            .frame(
-                Frame::none()
-                    .fill(if self.overlay_mode {
-                        Color32::from_rgba_unmultiplied(20, 22, 30, 235)
+        // Spotlight-style floating prompt bar
+        if self.show_chrome {
+            let spotlight_offset = if self.overlay_mode {
+                Vec2::new(0.0, 140.0)
+            } else {
+                Vec2::new(0.0, 62.0)
+            };
+            let area_resp = egui::Area::new(egui::Id::new("spotlight_prompt"))
+                .anchor(egui::Align2::CENTER_TOP, spotlight_offset)
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    let dark = self.overlay_mode;
+                    let card_bg = if dark {
+                        Color32::from_rgba_unmultiplied(22, 25, 35, 242)
                     } else {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 245)
-                    })
-                    .inner_margin(egui::Margin::symmetric(14.0, 10.0))
-                    .stroke(Stroke::new(
-                        1.0_f32,
-                        Color32::from_rgba_unmultiplied(120, 125, 140, 45),
-                    )),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    let input_w = (ui.available_width() - 320.0).clamp(220.0, 760.0);
-                    let text_edit = ui.add(
-                        egui::TextEdit::singleline(&mut self.prompt)
-                            .desired_width(input_w)
-                            .hint_text("Ask copain_t to sketch, annotate, or render a 3D diagram... (Enter to stream)"),
-                    );
-                    let enter_pressed = text_edit.lost_focus()
-                        && ui.input(|i| i.key_pressed(Key::Enter));
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 248)
+                    };
+                    let border = if dark {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 36)
+                    } else {
+                        Color32::from_rgba_unmultiplied(15, 23, 42, 28)
+                    };
 
-                    if self.provider != Provider::Demo {
-                        ui.checkbox(&mut self.capture_screen, "Screen");
-                    }
+                    Frame::none()
+                        .fill(card_bg)
+                        .rounding(Rounding::same(16.0))
+                        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+                        .stroke(Stroke::new(1.0_f32, border))
+                        .shadow(egui::epaint::Shadow {
+                            offset: Vec2::new(0.0, 12.0),
+                            blur: 28.0,
+                            spread: 0.0,
+                            color: Color32::from_rgba_unmultiplied(0, 0, 0, if dark { 110 } else { 36 }),
+                        })
+                        .show(ui, |ui| {
+                            ui.set_width(640.0);
+                            ui.horizontal(|ui| {
+                                // Accent brand dot
+                                ui.label(
+                                    RichText::new("copain_t")
+                                        .strong()
+                                        .size(14.0)
+                                        .color(Color32::from_rgb(255, 85, 0)),
+                                );
+                                ui.add_space(4.0);
 
-                    let send_clicked = ui
-                        .add_enabled(
-                            !self.streaming,
-                            egui::Button::new(
-                                RichText::new(if self.streaming { "Streaming..." } else { "Stream >" })
-                                    .color(Color32::WHITE),
-                            )
-                            .fill(Color32::from_rgb(255, 85, 0)),
-                        )
-                        .clicked();
+                                let text_edit = ui.add(
+                                    egui::TextEdit::singleline(&mut self.prompt)
+                                        .desired_width(410.0)
+                                        .font(FontId::proportional(16.0))
+                                        .frame(false)
+                                        .hint_text("Sketch, annotate, or render a 3D diagram..."),
+                                );
 
-                    if (send_clicked || enter_pressed) && !self.streaming {
-                        let p = self.prompt.clone();
-                        self.trigger_prompt(ctx, p);
-                        if self.overlay_mode {
-                            self.show_chrome = false;
-                        }
-                    }
+                                // Auto-focus when opened in Overlay Mode
+                                if self.overlay_mode && !text_edit.has_focus() {
+                                    text_edit.request_focus();
+                                }
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(&self.status_text)
-                                .size(12.0)
-                                .color(Color32::from_rgb(130, 138, 155)),
-                        );
-                    });
+                                let enter_pressed = ui.input(|i| i.key_pressed(Key::Enter))
+                                    && (text_edit.has_focus() || text_edit.lost_focus());
+
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    let send_clicked = ui
+                                        .add_enabled(
+                                            !self.streaming,
+                                            egui::Button::new(
+                                                RichText::new(if self.streaming { "..." } else { "Stream >" })
+                                                    .size(13.0)
+                                                    .color(Color32::WHITE),
+                                            )
+                                            .rounding(Rounding::same(10.0))
+                                            .fill(Color32::from_rgb(255, 85, 0)),
+                                        )
+                                        .clicked();
+
+                                    if self.provider != Provider::Demo {
+                                        ui.checkbox(&mut self.capture_screen, "Screen");
+                                    }
+
+                                    if (send_clicked || enter_pressed) && !self.streaming {
+                                        let p = self.prompt.clone();
+                                        self.trigger_prompt(ctx, p);
+                                        if self.overlay_mode {
+                                            self.show_chrome = false;
+                                        }
+                                    }
+                                });
+                            });
+
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(&self.status_text)
+                                        .size(11.5)
+                                        .color(Color32::from_rgb(130, 138, 155)),
+                                );
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.label(
+                                        RichText::new("Enter to stream  ·  Esc to clear")
+                                            .size(11.0)
+                                            .color(Color32::from_rgb(130, 138, 155)),
+                                    );
+                                });
+                            });
+                        });
                 });
-            });
-        interactive_rects.push(bottom_panel.response.rect);
+            interactive_rects.push(area_resp.response.rect);
         }
 
         // Optional NDJSON stream inspector drawer
