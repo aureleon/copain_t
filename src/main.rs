@@ -3,6 +3,7 @@ mod render_2d;
 mod render_3d;
 mod scene;
 mod streamer;
+mod tray;
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Instant;
@@ -17,6 +18,7 @@ use crate::render_2d::render_2d_layer;
 use crate::render_3d::render_3d_widget;
 use crate::scene::SceneStore;
 use crate::streamer::{capture_screen_jpeg_base64, spawn_stream, Provider, StreamEvent};
+use crate::tray::{TrayAction, TrayController};
 
 fn main() -> eframe::Result<()> {
     let _ = dotenvy::dotenv();
@@ -70,6 +72,7 @@ struct CopainApp {
     active_user_stroke: Vec<[f32; 2]>,
     last_passthrough: bool,
     pending_initial_prompt: Option<String>,
+    tray: Option<TrayController>,
 }
 
 impl CopainApp {
@@ -127,6 +130,7 @@ impl CopainApp {
             active_user_stroke: Vec::new(),
             last_passthrough: false,
             pending_initial_prompt: initial_prompt,
+            tray: TrayController::new(),
         }
     }
 
@@ -193,6 +197,45 @@ impl eframe::App for CopainApp {
         self.last_frame = now;
 
         self.drain_events();
+
+        // Handle macOS menu bar / tray actions
+        if let Some(action) = self.tray.as_ref().and_then(|t| t.poll()) {
+            match action {
+                TrayAction::TogglePrompt => {
+                    self.show_chrome = !self.show_chrome;
+                    if self.show_chrome {
+                        ctx.send_viewport_cmd(ViewportCommand::MousePassthrough(false));
+                        self.last_passthrough = false;
+                        ctx.send_viewport_cmd(ViewportCommand::Focus);
+                    }
+                }
+                TrayAction::ToggleMode => {
+                    self.overlay_mode = !self.overlay_mode;
+                    self.show_chrome = !self.overlay_mode;
+                    ctx.send_viewport_cmd(ViewportCommand::Decorations(!self.overlay_mode));
+                    ctx.send_viewport_cmd(ViewportCommand::WindowLevel(if self.overlay_mode {
+                        egui::WindowLevel::AlwaysOnTop
+                    } else {
+                        egui::WindowLevel::Normal
+                    }));
+                    if !self.overlay_mode {
+                        ctx.send_viewport_cmd(ViewportCommand::MousePassthrough(false));
+                        self.last_passthrough = false;
+                    }
+                }
+                TrayAction::Clear => {
+                    self.scene.clear(ClearLayer::All);
+                    self.status_text = "Cleared all layers".to_string();
+                }
+                TrayAction::Quit => {
+                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                }
+            }
+        }
+        // Keep polling menu bar events even when idle
+        if self.tray.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(120));
+        }
 
         if let Some(p) = self.pending_initial_prompt.take() {
             self.trigger_prompt(ctx, p);
